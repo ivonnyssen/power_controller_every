@@ -7,9 +7,9 @@
 
 #include <SPI.h>
 #include <Ethernet.h>
-#include <DHT.h>
 #include "page.h"
 #include <TimeLib.h>
+#include <Adafruit_BME280.h>
 
 #define GET 0
 #define POST 1
@@ -19,10 +19,7 @@
 #define ON 1
 #define CYCLE 2
 
-#define DHTPIN 2
-#define DHTTYPE DHT11
-
-#define DEBUG true
+#define DEBUG false
 
 #if DEBUG
  #define DEBUG_SERIAL_PRINTLN(x) if(Serial) Serial.println(x)
@@ -80,7 +77,7 @@ unsigned int localPort = 8888;
 EthernetUDP Udp;
 time_t lastLogTime;
 
-// Queue for barometric pressure values
+//sensor data
 const int NUM_SENSOR_RECORDS = 24 * 4;
 SensorData sensorData[NUM_SENSOR_RECORDS];
 
@@ -88,8 +85,8 @@ SensorData sensorData[NUM_SENSOR_RECORDS];
 bool ports[4] {false,false,false,false};
 #define BASE_PORT_PIN 3
 
-//temp sensor
-DHT dht(DHTPIN, DHTTYPE);
+//BME280 sensor
+Adafruit_BME280 bme;
 
 void setup() {
     // Open serial communications and wait for port to open:
@@ -120,8 +117,9 @@ void setup() {
     //initialize sensor stuff below
     memset(&sensorData, 0, sizeof(SensorData));
 
-    //temperature & humidity
-    dht.begin();
+    //bme280
+    if(!bme.begin()) DEBUG_SERIAL_PRINTLN("BME 280 failed!");
+
 }
 
 void  loop() {
@@ -133,7 +131,7 @@ void  loop() {
     }
 
     time_t seconds = now();
-    if(seconds % 10 == 0 && seconds != lastLogTime) {
+    if(seconds % 900 == 0 && seconds != lastLogTime) {
         measureAndLogSensors(seconds);
         lastLogTime = seconds;
     }
@@ -143,7 +141,7 @@ void measureAndLogSensors(time_t &now) {
     for(int i = 0; i < NUM_SENSOR_RECORDS - 1; i++){
         sensorData[i] = sensorData[i + 1];
     }
-    sensorData[NUM_SENSOR_RECORDS - 1] = {now, 980, dht.readTemperature(), dht.readHumidity()};
+    sensorData[NUM_SENSOR_RECORDS - 1] = {now, bme.readPressure()/100.0F, bme.readTemperature(), bme.readHumidity()};
     String logLine = String((unsigned long) sensorData[NUM_SENSOR_RECORDS - 1].readoutTime);
     logLine.concat(',');
     logLine.concat(sensorData[NUM_SENSOR_RECORDS -1].pressure);
@@ -232,8 +230,8 @@ void readAndLogRequestLines(EthernetClient client) {
 void printWebPage(EthernetClient client, const String &url, const int type) {
     //print header
     if (type == POST) {
-        client.println("HTTP/1.1 303 See Other");
-        String location = "Location: http://";
+        client.println(F("HTTP/1.1 303 See Other"));
+        String location = F("Location: http://");
         location.concat((int)EthernetClass::localIP()[0]);
         location.concat('.');
         location.concat((int)EthernetClass::localIP()[1]);
@@ -244,15 +242,27 @@ void printWebPage(EthernetClient client, const String &url, const int type) {
         location.concat(url);
         client.println(location);
     } else {
-        client.println("HTTP/1.1 200 OK");
+        client.println(F("HTTP/1.1 200 OK"));
+        if(url.equals("/")){
+            String location = F("Refresh: 450; url=http://");
+            location.concat((int)EthernetClass::localIP()[0]);
+            location.concat('.');
+            location.concat((int)EthernetClass::localIP()[1]);
+            location.concat('.');
+            location.concat((int)EthernetClass::localIP()[2]);
+            location.concat('.');
+            location.concat((int)EthernetClass::localIP()[3]);
+            location.concat(url);
+            client.println(location);
+        }
     }
 
-    if(url.endsWith(".htm")){
-        client.println("Content-Type: text/html");
-    } else if(url.endsWith(".jsn")){
-        client.println("Content-Type: application/json");
+    if(url.endsWith(".html")){
+        client.println(F("Content-Type: text/html"));
+    } else if(url.endsWith(".json")){
+        client.println(F("Content-Type: application/json"));
     }
-    client.println("Connection: close");
+    client.println(F("Connection: close"));
     client.println();
 
     if(url.equals("/")) {
@@ -278,7 +288,7 @@ void printWebPage(EthernetClient client, const String &url, const int type) {
         for(auto line : pageBottom){
             client.write(line);
         }
-    } else if(url.equals("/sensors.jsn")){
+    } else if(url.equals("/sensors.json")){
         client.println("{ \"values\":[");
         for(int i = 0; i < NUM_SENSOR_RECORDS; i++){
             String line = String(R"({"time":")");

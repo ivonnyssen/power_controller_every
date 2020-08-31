@@ -49,7 +49,7 @@ char* pageBottom[] = {
         F(R"===(let pressureData = [];)==="),
         F(R"===(let temperatureData = [];)==="),
         F(R"===(let humidityData = [];)==="),
-        F(R"===(window.fetch('sensors.jsn'))==="),
+        F(R"===(window.fetch('sensors.json'))==="),
         F(R"===(.then(response => response.json()))==="),
         F(R"===(.then(data => data["values"].forEach((i) => {)==="),
         F(R"===(labels.push(i["time"]);)==="),
