@@ -88,6 +88,9 @@ bool ports[4] {false,false,false,false};
 //BME280 sensor
 Adafruit_BME280 bme;
 
+//Serial BMS connection
+String serialInput;
+
 void setup() {
     // Open serial communications and wait for port to open:
     Serial.begin(9600);
@@ -134,6 +137,16 @@ void  loop() {
     if(seconds % 900 == 0 && seconds != lastLogTime) {
         measureAndLogSensors(seconds);
         lastLogTime = seconds;
+    }
+
+    while(Serial.available()){
+        char inChar = (char) Serial.read();
+        serialInput.concat(inChar);
+        DEBUG_SERIAL_PRINTLN(serialInput);
+        if(inChar == '\n') {
+            Serial.println(serialInput);
+            serialInput = "";
+        }
     }
 }
 
