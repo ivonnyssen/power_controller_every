@@ -10,6 +10,7 @@
 #include "page.h"
 #include <TimeLib.h>
 #include <Adafruit_BME280.h>
+#include <bms.h>
 
 #define GET 0
 #define POST 1
@@ -90,6 +91,7 @@ Adafruit_BME280 bme;
 
 //Serial BMS connection
 String serialInput;
+BMS bms;
 
 void setup() {
     // Open serial communications and wait for port to open:
@@ -123,6 +125,7 @@ void setup() {
     //bme280
     if(!bme.begin()) DEBUG_SERIAL_PRINTLN("BME 280 failed!");
 
+    bms.begin(&Serial);
 }
 
 void  loop() {
