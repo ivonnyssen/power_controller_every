@@ -32,6 +32,8 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 */
 
+#ifdef ARDUINO
+
 #include "bms.h"
 
 BMS::BMS() {
@@ -353,3 +355,5 @@ bool BMS::readValidResponse(uint8_t* buffer, uint8_t command){
         return false;
     }
 }
+
+#endif

@@ -10,7 +10,7 @@
 #include "page.h"
 #include <TimeLib.h>
 #include <Adafruit_BME280.h>
-#include <bms.h>
+#include "../lib/bms/bms.h"
 
 #define GET 0
 #define POST 1
@@ -28,14 +28,14 @@
  #define DEBUG_SERIAL_PRINTLN(x)
 #endif
 
-typedef struct Requests{
+typedef struct Request{
     int type;
     String url;
     long powerPort;
     long command;
 } Request;
 
-typedef struct Sensors{
+typedef struct SensorData{
     time_t readoutTime;
     float pressure;
     float temperature;
@@ -48,7 +48,7 @@ void readAndLogRequestLines(EthernetClient client);
 
 void printWebPage(EthernetClient client, const String &url, int type);
 
-void sendNTPPacket(const char * address);
+void sendNtpPacket(const char * address);
 
 void handleHttpRequest(EthernetClient &client);
 
@@ -71,8 +71,8 @@ EthernetServer server(80);
 #define 	NTP_OFFSET   3155673600
 #define 	UNIX_OFFSET   946684800
 const char ntpServer[] = "time.nist.gov";
-const int NTP_PACKET_SIZE = 48;
-uint8_t packetBuffer[NTP_PACKET_SIZE];
+const int ntpPacketSize = 48;
+uint8_t packetBuffer[ntpPacketSize];
 const int timeZone = -8; //PST
 unsigned int localPort = 8888;
 EthernetUDP Udp;
@@ -93,6 +93,7 @@ Adafruit_BME280 bme;
 String serialInput;
 BMS bms;
 
+#ifndef UNIT_TEST
 void setup() {
     // Open serial communications and wait for port to open:
     Serial.begin(9600);
@@ -152,6 +153,7 @@ void  loop() {
         }
     }
 }
+#endif
 
 void measureAndLogSensors(time_t &now) {
     for(int i = 0; i < NUM_SENSOR_RECORDS - 1; i++){
@@ -346,9 +348,9 @@ String zeroPad(int value){
 }
 
 // send an NTP request to the time server at the given address
-void sendNTPPacket(const char * address) {
+void sendNtpPacket(const char * address) {
     // set all bytes in the buffer to 0
-    memset(packetBuffer, 0, NTP_PACKET_SIZE);
+    memset(packetBuffer, 0, ntpPacketSize);
     // Initialize values needed to form NTP request
     // (see URL above for details on the packets)
     packetBuffer[0] = 0b11100011;   // LI, Version, Mode
@@ -364,19 +366,19 @@ void sendNTPPacket(const char * address) {
     // all NTP fields have been given values, now
     // you can send a packet requesting a timestamp:
     Udp.beginPacket(address, 123); // NTP requests are to port 123
-    Udp.write(packetBuffer, NTP_PACKET_SIZE);
+    Udp.write(packetBuffer, ntpPacketSize);
     Udp.endPacket();
 }
 
 time_t getNtpTime() {
     while (Udp.parsePacket() > 0) ; // discard any previously received packets
-    sendNTPPacket(ntpServer);
+    sendNtpPacket(ntpServer);
     uint32_t beginWait = millis();
     uint32_t now = beginWait;
     while (beginWait > now - 2000) {
         int size = Udp.parsePacket();
-        if (size >= NTP_PACKET_SIZE) {
-            Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+        if (size >= ntpPacketSize) {
+            Udp.read(packetBuffer, ntpPacketSize);  // read packet into the buffer
             unsigned long secsSince1900;
             // convert four bytes starting at location 40 to a long integer
             secsSince1900 =  (unsigned long)packetBuffer[40] << (uint8_t) 24;

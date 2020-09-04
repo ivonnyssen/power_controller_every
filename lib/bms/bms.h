@@ -35,8 +35,9 @@ POSSIBILITY OF SUCH DAMAGE.
 #ifndef POWER_CONTROLLER_EVERY_BMS_H
 #define POWER_CONTROLLER_EVERY_BMS_H
 
+#ifdef ARDUINO
 
-#include "Arduino.h"
+#include <Arduino.h>
 
 #define BMS_OPTION_DEBUG true
 
@@ -66,7 +67,7 @@ typedef struct SoftwareVersion {
         minor = 0;
     }
 
-    SoftwareVersion& operator=(uint8_t version){
+    SoftwareVersion(uint8_t version){
         major = version / 0x0Fu & 0b1111u;
         minor = version & 0b1111u;
     }
@@ -84,7 +85,7 @@ typedef struct ProductionDate {
         year = 2000;
     }
 
-    ProductionDate& operator=(uint16_t date) {
+    ProductionDate(uint16_t date) {
         // Production date is stored internally as a uint16_t, bit-packed as follows:
         //         1111110000000000
         // Field   5432109876543210  # bits  offset
@@ -129,7 +130,7 @@ typedef struct ProtectionStatus {
         softwareLockMos                    = false;
     }
 
-    ProtectionStatus& operator=(uint16_t status) {
+    ProtectionStatus(uint16_t status) {
         singleCellOvervoltageProtection    = status & 0b0000000000000001u;
         singleCellUndervoltageProtection   = status & 0b0000000000000010u;
         wholePackOvervoltageProtection     = status & 0b0000000000000100u;
@@ -230,5 +231,7 @@ private:
 
     bool readValidResponse(uint8_t *buffer, uint8_t command);
 };
+
+#endif
 
 #endif //POWER_CONTROLLER_EVERY_BMS_H
