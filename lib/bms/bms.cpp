@@ -321,7 +321,7 @@ void BMS::queryCellVoltages() {
 
 void BMS::parseVoltagesResponse(const uint8_t *buffer) {
     for (int i = 0; i < min(numCells, NUM_CELLS); i++) {
-        cellVoltages[i] = ((uint16_t)(buffer[i * 2 + 2] << 8u) | (uint16_t)(buffer[(i * 2) + 3])) * 0.001f;
+        cellVoltages[i] = ((uint16_t)(buffer[i * 2 + 4] << 8u) | (uint16_t)(buffer[i * 2 + 5])) * 0.001f;
     }
 }
 
@@ -345,7 +345,7 @@ void BMS::queryBmsName() {
 
 void BMS::parseNameResponse(const uint8_t *buffer) {
     name = String();
-    for(int i = 0; i < buffer[3]; i++){
+    for(int i = 4; i < buffer[3] + 4; i++){
         name.concat((char)buffer[i]);
     }
 }
