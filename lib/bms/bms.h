@@ -200,19 +200,21 @@ public:
     uint8_t stateOfCharge;  // state of charge, in percent (0-100)
     bool isDischargeFetEnabled;
     bool isChargeFetEnabled;
-    uint8_t numCells; // number of battery cells
-    uint8_t numTemperatureSensors;  // number of temperature sensors
+    uint8_t numCells;
+    uint8_t numTemperatureSensors;
     float temperatures[NUM_TEMP_SENSORS]{};
     float cellVoltages[NUM_CELLS]{};
     String name;
     FaultCounts faultCounts;
     void clearFaultCounts();
     bool isBalancing(uint8_t cellNumber) const;
+    void setMosfetControl(bool charge, bool discharge);
 
-    // #######################################################################
-    // 0xE1 MOSFET Control
-
-    void setMosfetControl(bool charge, bool discharge);  // Controls the charge and discharge MOSFETs
+    static uint16_t calculateChecksum(uint8_t* buffer, int len);
+    void calculateMosfetCommandString(uint8_t *commandString, bool charge, bool discharge);
+    constexpr static const uint8_t basicSystemInfoCommand[7] = {START_BYTE, READ, CMD_BASIC_SYSTEM_INFO, 0x00, 0xFF, 0xFD, STOP_BYTE};
+    constexpr static const uint8_t cellVoltagesCommand[7] = {START_BYTE, READ, CMD_CELL_VOLTAGES, 0x00, 0xFF, 0xFC, STOP_BYTE};
+    constexpr static const uint8_t nameCommand[7] = {START_BYTE, READ, CMD_NAME, 0x00, 0xFF, 0xFB, STOP_BYTE};
 
 #ifdef BMS_OPTION_DEBUG
     void debug();  // Calling this method will print out the received data to the main serial port
@@ -227,9 +229,9 @@ private:
     void queryBasicInfo();
     void queryCellVoltages();
     void queryBmsName();
-    uint16_t calculateChecksum(uint8_t* buffer, int len);
 
     bool readValidResponse(uint8_t *buffer, uint8_t command);
+
 };
 
 #endif

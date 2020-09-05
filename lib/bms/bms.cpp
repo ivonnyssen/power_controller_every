@@ -65,7 +65,7 @@ BMS::BMS() {
 }
 
 void BMS::begin(Stream *port, uint16_t timeout) {
-#ifdef BMS_OPTION_DEBUG
+#if BMS_OPTION_DEBUG
     Serial.println("OverkillSolarBMS Begin!");
 #endif
     serial = port;
@@ -117,14 +117,11 @@ void BMS::clearFaultCounts() {
 }
 
 void BMS::setMosfetControl(bool charge, bool discharge) {
-#ifdef BMS_OPTION_DEBUG
+#if BMS_OPTION_DEBUG
     Serial.println("Query 0xE1 MOSFET Control");
 #endif
-    uint8_t xxByte = 0b11;
-    xxByte &= charge ? 0b10u : 0b11u;
-    xxByte &= discharge ? 0b01u : 0b11u;
-
-    uint8_t data[] = {START_BYTE, WRITE, CMD_CTL_MOSFET, 0x00, xxByte, 0xFF, 0xFD, STOP_BYTE};
+    uint8_t data[] = {START_BYTE, WRITE, CMD_CTL_MOSFET, 0x02, 0x00, 0x00, 0x00, 0x00, STOP_BYTE};
+    calculateMosfetCommandString(data, charge, discharge);
 
     if(serial->availableForWrite()){
         serial->write(data, sizeof(data));
@@ -132,6 +129,17 @@ void BMS::setMosfetControl(bool charge, bool discharge) {
 
     uint8_t buffer[RX_BUFFER_SIZE] {0};
     comError = readValidResponse(buffer, CMD_CTL_MOSFET);
+}
+
+void BMS::calculateMosfetCommandString(uint8_t * commandString, bool charge, bool discharge) {
+    uint8_t xxByte = 0b11;
+    xxByte &= charge ? 0b10u : 0b11u;
+    xxByte &= discharge ? 0b01u : 0b11u;
+    commandString[5] = xxByte;
+
+    uint16_t checksum = calculateChecksum(&commandString[2], 4);
+    commandString[6] = (uint8_t) checksum >> 8u;
+    commandString[7] = (uint8_t) checksum;
 }
 
 #if BMS_OPTION_DEBUG
@@ -234,14 +242,11 @@ void BMS::debug() {
 #endif
 
 void BMS::queryBasicInfo() {
-#ifdef BMS_OPTION_DEBUG
+#if BMS_OPTION_DEBUG
     Serial.println("Query 0x03 Basic Info");
 #endif
-
-    uint8_t data[] = {START_BYTE, READ, CMD_BASIC_SYSTEM_INFO, 0x00, 0xFF, 0xFD, STOP_BYTE};
-
     if(serial->availableForWrite()){
-        serial->write(data, sizeof(data));
+        serial->write(basicSystemInfoCommand, sizeof(basicSystemInfoCommand));
     }
 
     uint8_t buffer[RX_BUFFER_SIZE] {0};
@@ -289,13 +294,12 @@ void BMS::queryBasicInfo() {
 
 
 void BMS::queryCellVoltages() {
-#ifdef BMS_OPTION_DEBUG
+#if BMS_OPTION_DEBUG
     Serial.println("Query 0x04 Cell Voltages");
 #endif
-    uint8_t data[] = {START_BYTE, READ, CMD_CELL_VOLTAGES, 0x00, 0xFF, 0xFC, STOP_BYTE};
 
     if(serial->availableForWrite()){
-        serial->write(data, sizeof(data));
+        serial->write(cellVoltagesCommand, sizeof(cellVoltagesCommand));
     }
 
     uint8_t buffer[RX_BUFFER_SIZE] {0};
@@ -310,13 +314,11 @@ void BMS::queryCellVoltages() {
 }
 
 void BMS::queryBmsName() {
-#ifdef BMS_OPTION_DEBUG
+#if BMS_OPTION_DEBUG
     Serial.println("Query 0x05 BMS Name");
 #endif
-    uint8_t data[] = {START_BYTE, READ, CMD_NAME, 0x00, 0xFF, 0xFB, STOP_BYTE};
-
     if(serial->availableForWrite()){
-        serial->write(data, sizeof(data));
+        serial->write(nameCommand, sizeof(nameCommand));
     }
 
     uint8_t buffer[RX_BUFFER_SIZE] {0};
@@ -333,7 +335,7 @@ void BMS::queryBmsName() {
 
 uint16_t BMS::calculateChecksum(uint8_t *buffer, int len) {
     uint16_t checksum =0;
-    for(int i = 2; i < 2 + len; i++){
+    for(int i = 0; i < len; i++){
         checksum += buffer[i];
     }
     return 0xFFFF - checksum + 1;
