@@ -13,6 +13,7 @@
 #define TEST_STRUCS false
 #define TEST_COMMANDS1 false
 #define TEST_COMMANDS2 false
+#define TEST_VALIDATE_RESPONSE true
 
 void testSoftwareVersion(){
     SoftwareVersion version;
@@ -117,7 +118,64 @@ void testMosfetCommandStringChargeDischarge(){
     TEST_ASSERT_EQUAL_HEX(0xFF1D, BMS::calculateChecksum(&data[2], 4));
 }
 
+void testValidateResponse(){
+    BMS bms;
+    uint8_t data[]  = {0xDD, 0x03, 0x00, 0x1B, 0x17, 0x00, 0x00, 0x00, 0x02, 0xD0, 0x03, 0xE8, 0x00, 0x00, 0x20, 0x78, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x48, 0x03, 0x0F, 0x02, 0x0B, 0x76, 0x0B, 0x82, 0xFB, 0xFF};
+    TEST_ASSERT_EQUAL(true, bms.validateResponse(data, 0x03, sizeof(data)));
+}
 
+void testBasicInfoResponse(){
+    BMS bms;
+    uint8_t data[]  = {0xDD, 0x03, 0x00, 0x1B, 0x17, 0x00, 0x00, 0x00, 0x02, 0xD0, 0x03, 0xE8, 0x00, 0x00, 0x20, 0x78, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x48, 0x03, 0x0F, 0x02, 0x0B, 0x76, 0x0B, 0x82, 0xFB, 0xFF};
+    bms.parseBasicInfoResponse(data);
+    TEST_ASSERT_EQUAL(58.88, bms.totalVoltage);
+    TEST_ASSERT_EQUAL(0.0, bms.current);
+    TEST_ASSERT_EQUAL(7.20, bms.balanceCapacity);
+    TEST_ASSERT_EQUAL(10.0, bms.rateCapacity);
+    TEST_ASSERT_EQUAL(0, bms.cycleCount);
+    TEST_ASSERT_EQUAL(24, bms.productionDate.day);
+    TEST_ASSERT_EQUAL(3, bms.productionDate.month);
+    TEST_ASSERT_EQUAL(2016, bms.productionDate.year);
+    for (int i = 0; i < bms.numCells; i++) {
+        TEST_ASSERT_EQUAL(false, bms.isBalancing(i));
+    }
+
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.singleCellOvervoltageProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.singleCellUndervoltageProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.wholePackOvervoltageProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.wholePackUndervoltageProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.chargingOverTemperatureProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.chargingLowTemperatureProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.dischargeOverTemperatureProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.dischargeLowTemperatureProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.chargingOvercurrentProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.dischargeOvercurrentProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.shortCircuitProtection);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.frontEndDetectionIcError);
+    TEST_ASSERT_EQUAL(0, bms.faultCounts.softwareLockMos);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.singleCellOvervoltageProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.singleCellUndervoltageProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.wholePackOvervoltageProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.wholePackUndervoltageProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.chargingOverTemperatureProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.chargingLowTemperatureProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.dischargeOverTemperatureProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.dischargeLowTemperatureProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.chargingOvercurrentProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.dischargeOvercurrentProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.shortCircuitProtection);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.frontEndDetectionIcError);
+    TEST_ASSERT_EQUAL(false, bms.protectionStatus.softwareLockMos);
+    TEST_ASSERT_EQUAL(1, bms.softwareVersion.major);
+    TEST_ASSERT_EQUAL(0, bms.softwareVersion.minor);
+    TEST_ASSERT_EQUAL(72, bms.stateOfCharge);
+    TEST_ASSERT_EQUAL(true, bms.isDischargeFetEnabled);
+    TEST_ASSERT_EQUAL(true, bms.isChargeFetEnabled);
+    TEST_ASSERT_EQUAL(15, bms.numCells);
+    TEST_ASSERT_EQUAL(2, bms.numTemperatureSensors);
+    TEST_ASSERT_EQUAL(20.3, bms.temperatures[0]);
+    TEST_ASSERT_EQUAL(21.2, bms.temperatures[1]);
+}
 
 void setup() {
     UNITY_BEGIN();
@@ -140,6 +198,10 @@ void setup() {
     RUN_TEST(testMosfetCommandStringChargeNoDischarge);
     RUN_TEST(testMosfetCommandStringNoChargeDischarge);
     RUN_TEST(testMosfetCommandStringChargeDischarge);
+#endif
+#if TEST_VALIDATE_RESPONSE
+    RUN_TEST(testValidateResponse);
+    RUN_TEST(testBasicInfoResponse);
 #endif
 
     UNITY_END();

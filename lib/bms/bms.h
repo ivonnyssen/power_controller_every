@@ -216,6 +216,11 @@ public:
     constexpr static const uint8_t cellVoltagesCommand[7] = {START_BYTE, READ, CMD_CELL_VOLTAGES, 0x00, 0xFF, 0xFC, STOP_BYTE};
     constexpr static const uint8_t nameCommand[7] = {START_BYTE, READ, CMD_NAME, 0x00, 0xFF, 0xFB, STOP_BYTE};
 
+    bool validateResponse(uint8_t *buffer, uint8_t command, int bytesReceived);
+    void parseBasicInfoResponse(const uint8_t *buffer);
+    void parseVoltagesResponse(const uint8_t *buffer);
+    void parseNameResponse(const uint8_t *buffer);
+
 #ifdef BMS_OPTION_DEBUG
     void debug();  // Calling this method will print out the received data to the main serial port
 #endif
@@ -229,8 +234,6 @@ private:
     void queryBasicInfo();
     void queryCellVoltages();
     void queryBmsName();
-
-    bool readValidResponse(uint8_t *buffer, uint8_t command);
 
 };
 

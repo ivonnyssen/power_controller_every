@@ -128,7 +128,7 @@ void BMS::setMosfetControl(bool charge, bool discharge) {
     }
 
     uint8_t buffer[RX_BUFFER_SIZE] {0};
-    comError = readValidResponse(buffer, CMD_CTL_MOSFET);
+    comError = validateResponse(buffer, CMD_CTL_MOSFET, 0);
 }
 
 void BMS::calculateMosfetCommandString(uint8_t * commandString, bool charge, bool discharge) {
@@ -250,20 +250,27 @@ void BMS::queryBasicInfo() {
     }
 
     uint8_t buffer[RX_BUFFER_SIZE] {0};
-    comError = readValidResponse(buffer, CMD_BASIC_SYSTEM_INFO);
+
+    int bytesReceived = serial->readBytesUntil((char)STOP_BYTE, buffer, sizeof(buffer));
+    comError = validateResponse(buffer, CMD_BASIC_SYSTEM_INFO, bytesReceived);
     if(comError){
         return;
     }
 
-    totalVoltage = 0.01f * ((uint16_t)(buffer[3] << 8u) | (uint16_t)(buffer[4]));
-    current = ((uint16_t)(buffer[4]  << 8u) | (uint16_t)(buffer[5])) * 0.01;
-    balanceCapacity = ((uint16_t)(buffer[6]  << 8u) | (uint16_t)(buffer[7])) * 0.01;
-    rateCapacity = ((uint16_t)(buffer[8]  << 8u) | (uint16_t)(buffer[9])) * 0.01;
-    cycleCount = (uint16_t)(buffer[10]  << 8u) | (uint16_t)(buffer[11]);
-    productionDate = (uint16_t)(buffer[12]  << 8u) | (uint16_t)(buffer[13]);
-    balanceStatus = (uint32_t)(buffer[14]  << 8u) | (uint32_t)(buffer[15]) | (uint32_t)(buffer[16]  << 24u) | (uint32_t)(buffer[17] << 16u) ;
+    parseBasicInfoResponse(buffer);
+
+}
+
+void BMS::parseBasicInfoResponse(const uint8_t *buffer) {
+    totalVoltage = 0.01f * ((uint16_t)(buffer[4] << 8u) | (uint16_t)(buffer[5]));
+    current = ((uint16_t)(buffer[6] << 8u) | (uint16_t)(buffer[7])) * 0.01;
+    balanceCapacity = ((uint16_t)(buffer[8] << 8u) | (uint16_t)(buffer[9])) * 0.01;
+    rateCapacity = ((uint16_t)(buffer[10] << 8u) | (uint16_t)(buffer[11])) * 0.01;
+    cycleCount = (uint16_t)(buffer[12] << 8u) | (uint16_t)(buffer[13]);
+    productionDate = (uint16_t)(buffer[14] << 8u) | (uint16_t)(buffer[15]);
+    balanceStatus = (uint32_t)(buffer[16] << 8u) | (uint32_t)(buffer[17]) | (uint32_t)(buffer[18] << 24u) | (uint32_t)(buffer[19] << 16u) ;
     lastProtectionStatus = protectionStatus;
-    protectionStatus = (uint16_t)(buffer[18] << 8u) | (uint16_t)(buffer[19]);
+    protectionStatus = (uint16_t)(buffer[20] << 8u) | (uint16_t)(buffer[21]);
 
     // See if there are any new faults.  If so, then increment the count.
     if (!lastProtectionStatus.singleCellOvervoltageProtection && protectionStatus.singleCellOvervoltageProtection)  { faultCounts.singleCellOvervoltageProtection += 1; }
@@ -280,15 +287,15 @@ void BMS::queryBasicInfo() {
     if (!lastProtectionStatus.frontEndDetectionIcError && protectionStatus.frontEndDetectionIcError) { faultCounts.frontEndDetectionIcError += 1; }
     if (!lastProtectionStatus.softwareLockMos && protectionStatus.softwareLockMos) { faultCounts.softwareLockMos += 1; }
 
-    softwareVersion = buffer[20];
-    stateOfCharge = buffer[21];
-    isDischargeFetEnabled = buffer[22] & 0b00000010u;
-    isChargeFetEnabled = buffer[22] & 0b00000001u;
-    numCells = buffer[23];
-    numTemperatureSensors = buffer[24];
+    softwareVersion = buffer[22];
+    stateOfCharge = buffer[23];
+    isDischargeFetEnabled = buffer[24] & 0b00000010u;
+    isChargeFetEnabled = buffer[24] & 0b00000001u;
+    numCells = buffer[25];
+    numTemperatureSensors = buffer[26];
 
     for (int i = 0; i < min(numTemperatureSensors, NUM_TEMP_SENSORS); i++) {
-        temperatures[i] = ((uint16_t)(buffer[25 + (i * 2)] << 8u) | (uint16_t)(buffer[26 + (i * 2)])) * 0.1f -273.15f;
+        temperatures[i] = ((uint16_t)(buffer[27 + (i * 2)] << 8u) | (uint16_t)(buffer[28 + (i * 2)])) * 0.1f - 273.15f;
     }
 }
 
@@ -303,11 +310,16 @@ void BMS::queryCellVoltages() {
     }
 
     uint8_t buffer[RX_BUFFER_SIZE] {0};
-    comError = readValidResponse(buffer, CMD_CELL_VOLTAGES);
+    int bytesReceived = serial->readBytesUntil((char)STOP_BYTE, buffer, sizeof(buffer));
+    comError = validateResponse(buffer, CMD_CELL_VOLTAGES, bytesReceived);
     if(comError){
         return;
     }
 
+    parseVoltagesResponse(buffer);
+}
+
+void BMS::parseVoltagesResponse(const uint8_t *buffer) {
     for (int i = 0; i < min(numCells, NUM_CELLS); i++) {
         cellVoltages[i] = ((uint16_t)(buffer[i * 2 + 2] << 8u) | (uint16_t)(buffer[(i * 2) + 3])) * 0.001f;
     }
@@ -322,11 +334,16 @@ void BMS::queryBmsName() {
     }
 
     uint8_t buffer[RX_BUFFER_SIZE] {0};
-    comError = readValidResponse(buffer, CMD_NAME);
+    int bytesReceived = serial->readBytesUntil((char)STOP_BYTE, buffer, sizeof(buffer));
+    comError = validateResponse(buffer, CMD_NAME, bytesReceived);
     if(comError){
         return;
     }
 
+    parseNameResponse(buffer);
+}
+
+void BMS::parseNameResponse(const uint8_t *buffer) {
     name = String();
     for(int i = 0; i < buffer[3]; i++){
         name.concat((char)buffer[i]);
@@ -341,8 +358,8 @@ uint16_t BMS::calculateChecksum(uint8_t *buffer, int len) {
     return 0xFFFF - checksum + 1;
 }
 
-bool BMS::readValidResponse(uint8_t* buffer, uint8_t command){
-    if( serial->readBytesUntil((char)STOP_BYTE, buffer, sizeof(buffer)) <= 0) {
+bool BMS::validateResponse(uint8_t *buffer, uint8_t command, int bytesReceived) {
+    if(bytesReceived <= 0) {
         return false;
     }
 
@@ -350,12 +367,12 @@ bool BMS::readValidResponse(uint8_t* buffer, uint8_t command){
         return false;
     }
 
-    int length = ((uint16_t)(buffer[2]  << 8u) | (uint16_t)(buffer[3]));
-    uint16_t calculatedCheckSum = calculateChecksum(&buffer[04], length);
-    uint16_t transmittedChecksum = ((uint16_t)(buffer[length+4]  << 8u) | (uint16_t)(buffer[length+5]));
+    uint16_t calculatedCheckSum = calculateChecksum(&buffer[02], bytesReceived-4);
+    uint16_t transmittedChecksum = ((uint16_t)(buffer[bytesReceived-2]  << 8u) | (uint16_t)(buffer[bytesReceived-1]));
     if(calculatedCheckSum != transmittedChecksum) {
         return false;
     }
+    return true;
 }
 
 #endif
