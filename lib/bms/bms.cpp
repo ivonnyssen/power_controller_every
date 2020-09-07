@@ -34,7 +34,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #ifdef ARDUINO
 
-#include "bms.h"
+#include <bms.h>
 
 BMS::BMS() {
     totalVoltage = 0;
@@ -80,6 +80,10 @@ void BMS::end() {
 void BMS::poll() {
     if (isEnabled) {
         queryBasicInfo();
+        minVoltage24 = totalVoltage < minVoltage24 ? totalVoltage : minVoltage24;
+        maxVoltage24 = totalVoltage > maxVoltage24 ? totalVoltage : maxVoltage24;
+        maxCharge24 = current > maxCharge24 ? current : maxCharge24;
+        maxDischarge24 = current < -maxDischarge24 ? -current : maxDischarge24;
         queryCellVoltages();
         if(name.equals("")){
             queryBmsName();
@@ -373,6 +377,13 @@ bool BMS::validateResponse(uint8_t *buffer, uint8_t command, int bytesReceived) 
         return false;
     }
     return true;
+}
+
+void BMS::clear24Values() {
+    minVoltage24 = totalVoltage;
+    maxVoltage24 = totalVoltage;
+    maxCharge24 = current > 0 ? current : 0;
+    maxDischarge24 = current < -maxDischarge24 ? -current : 0;
 }
 
 #endif

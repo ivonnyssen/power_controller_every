@@ -39,7 +39,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include <Arduino.h>
 
-#define BMS_OPTION_DEBUG true
+#define BMS_OPTION_DEBUG false
 
 #define NUM_TEMP_SENSORS 2
 #define NUM_CELLS 8
@@ -206,15 +206,21 @@ public:
     float cellVoltages[NUM_CELLS]{};
     String name;
     FaultCounts faultCounts;
+    float minVoltage24;
+    float maxVoltage24;
+    float maxCharge24;
+    float maxDischarge24;
+
+    void clear24Values();
     void clearFaultCounts();
     bool isBalancing(uint8_t cellNumber) const;
     void setMosfetControl(bool charge, bool discharge);
 
     static uint16_t calculateChecksum(uint8_t* buffer, int len);
     void calculateMosfetCommandString(uint8_t *commandString, bool charge, bool discharge);
-    constexpr static const uint8_t basicSystemInfoCommand[7] = {START_BYTE, READ, CMD_BASIC_SYSTEM_INFO, 0x00, 0xFF, 0xFD, STOP_BYTE};
-    constexpr static const uint8_t cellVoltagesCommand[7] = {START_BYTE, READ, CMD_CELL_VOLTAGES, 0x00, 0xFF, 0xFC, STOP_BYTE};
-    constexpr static const uint8_t nameCommand[7] = {START_BYTE, READ, CMD_NAME, 0x00, 0xFF, 0xFB, STOP_BYTE};
+    uint8_t basicSystemInfoCommand[7] = {START_BYTE, READ, CMD_BASIC_SYSTEM_INFO, 0x00, 0xFF, 0xFD, STOP_BYTE};
+    uint8_t  cellVoltagesCommand[7] = {START_BYTE, READ, CMD_CELL_VOLTAGES, 0x00, 0xFF, 0xFC, STOP_BYTE};
+    uint8_t  nameCommand[7] = {START_BYTE, READ, CMD_NAME, 0x00, 0xFF, 0xFB, STOP_BYTE};
 
     bool validateResponse(uint8_t *buffer, uint8_t command, int bytesReceived);
     void parseBasicInfoResponse(const uint8_t *buffer);

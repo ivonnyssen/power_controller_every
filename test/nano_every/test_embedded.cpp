@@ -7,14 +7,13 @@
 #include <unity.h>
 #include <Arduino.h>
 #include <bms.h>
-#include "../../lib/bms/bms.h"
 
 //turn on below to test one at a time if flash is low
 #define TEST_STRUCS false
 #define TEST_COMMANDS1 false
 #define TEST_COMMANDS2 false
 #define TEST_VALIDATE_BASIC_INFO false
-#define TEST_VALIDATE_VOLTAGES_NAME true
+#define TEST_VALIDATE_VOLTAGES_NAME false
 
 void testSoftwareVersion(){
     SoftwareVersion version;
@@ -77,17 +76,20 @@ void testProtectionStatusAssignment() {
 }
 
 void testCalculateChecksumCmdBasicSystemInfo(){
-    uint8_t *data = BMS::basicSystemInfoCommand;
+    BMS bms;
+    uint8_t *data = bms.basicSystemInfoCommand;
     TEST_ASSERT_EQUAL(0xFFFD, BMS::calculateChecksum(&data[2], 2));
 }
 
 void testCalculateChecksumCmdCellVoltages(){
-    uint8_t *data = BMS::cellVoltagesCommand;
+    BMS bms;
+    uint8_t *data = bms.cellVoltagesCommand;
     TEST_ASSERT_EQUAL(0xFFFC, BMS::calculateChecksum(&data[2], 2));
 }
 
 void testCalculateChecksumCmdName(){
-    uint8_t *data = BMS::nameCommand;
+    BMS bms;
+    uint8_t *data = bms.nameCommand;
     TEST_ASSERT_EQUAL(0xFFFB, BMS::calculateChecksum(&data[2], 2));
 }
 

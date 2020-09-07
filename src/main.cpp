@@ -9,8 +9,10 @@
 #include <Ethernet.h>
 #include "page.h"
 #include <TimeLib.h>
-#include <Adafruit_BME280.h>
-#include "../lib/bms/bms.h"
+#define TINY_BME280_I2C
+#include <TinyBME280.h>
+#include <Wire.h>
+#include "bms.h"
 
 #define GET 0
 #define POST 1
@@ -19,6 +21,8 @@
 #define OFF 0
 #define ON 1
 #define CYCLE 2
+
+#define NUM_PORTS 4
 
 #define DEBUG false
 
@@ -56,7 +60,15 @@ time_t getNtpTime();
 
 void measureAndLogSensors(time_t &now);
 
-String zeroPad(int);
+void printBmsFaults(EthernetClient &client);
+
+void printCellVoltages(EthernetClient &client);
+
+void printBmsStates(EthernetClient &client);
+
+void printSensorsJson(EthernetClient &client);
+
+void printIndexPage(EthernetClient &client);
 
 // Enter a MAC address and IP address for your controller below.
 // The IP address will be dependent on your local network:
@@ -76,22 +88,30 @@ uint8_t packetBuffer[ntpPacketSize];
 const int timeZone = -8; //PST
 unsigned int localPort = 8888;
 EthernetUDP Udp;
-time_t lastLogTime;
 
 //sensor data
-const int NUM_SENSOR_RECORDS = 24 * 4;
-SensorData sensorData[NUM_SENSOR_RECORDS];
+const int numSensorRecords = 24 * 4;
+SensorData sensorData[numSensorRecords];
+time_t lastSensorLogTime;
 
 //variables for states
 bool ports[4] {false,false,false,false};
 #define BASE_PORT_PIN 3
 
+//#define BME_SCK 13
+//#define BME_MISO 12
+//#define BME_MOSI 11
+//#define BME_CS 4
+
 //BME280 sensor
-Adafruit_BME280 bme;
+//Adafruit_BME280 bme; // I2C
+//Adafruit_BME280 bme(BME_CS); // hardware SPI
+//Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO,  BME_SCK);
+tiny::BME280 bme;
 
 //Serial BMS connection
-String serialInput;
 BMS bms;
+time_t lastBmsCheckTime;
 
 #ifndef UNIT_TEST
 void setup() {
@@ -124,9 +144,10 @@ void setup() {
     memset(&sensorData, 0, sizeof(SensorData));
 
     //bme280
+    Wire.begin();
     if(!bme.begin()) DEBUG_SERIAL_PRINTLN("BME 280 failed!");
 
-    bms.begin(&Serial);
+    bms.begin(&Serial1);
 }
 
 void  loop() {
@@ -138,35 +159,35 @@ void  loop() {
     }
 
     time_t seconds = now();
-    if(seconds % 900 == 0 && seconds != lastLogTime) {
+    if(seconds % 900 == 0 && seconds != lastSensorLogTime) {
         measureAndLogSensors(seconds);
-        lastLogTime = seconds;
+        lastSensorLogTime = seconds;
     }
 
-    while(Serial.available()){
-        char inChar = (char) Serial.read();
-        serialInput.concat(inChar);
-        DEBUG_SERIAL_PRINTLN(serialInput);
-        if(inChar == '\n') {
-            Serial.println(serialInput);
-            serialInput = "";
-        }
+    if(seconds % 30 == 0 && seconds != lastBmsCheckTime){
+        bms.poll();
+        lastBmsCheckTime = seconds;
+    }
+
+    if(seconds % SECS_PER_DAY == 0){
+        bms.clear24Values();
+        bms.clearFaultCounts();
     }
 }
 #endif
 
 void measureAndLogSensors(time_t &now) {
-    for(int i = 0; i < NUM_SENSOR_RECORDS - 1; i++){
+    for(int i = 0; i < numSensorRecords - 1; i++){
         sensorData[i] = sensorData[i + 1];
     }
-    sensorData[NUM_SENSOR_RECORDS - 1] = {now, bme.readPressure()/100.0F, bme.readTemperature(), bme.readHumidity()};
-    String logLine = String((unsigned long) sensorData[NUM_SENSOR_RECORDS - 1].readoutTime);
+    sensorData[numSensorRecords - 1] = {now, bme.readFixedPressure() / 100.0, bme.readFixedTempC() / 100.0, bme.readFixedHumidity() / 1000.0};
+    String logLine = String((unsigned long) sensorData[numSensorRecords - 1].readoutTime);
     logLine.concat(',');
-    logLine.concat(sensorData[NUM_SENSOR_RECORDS -1].pressure);
+    logLine.concat(sensorData[numSensorRecords - 1].pressure);
     logLine.concat(',');
-    logLine.concat(sensorData[NUM_SENSOR_RECORDS -1].temperature);
+    logLine.concat(sensorData[numSensorRecords - 1].temperature);
     logLine.concat(',');
-    logLine.concat(sensorData[NUM_SENSOR_RECORDS -1].humidity);
+    logLine.concat(sensorData[numSensorRecords - 1].humidity);
     logLine.concat('\n');
     DEBUG_SERIAL_PRINTLN(logLine.c_str());
 }
@@ -248,7 +269,7 @@ void readAndLogRequestLines(EthernetClient client) {
 void printWebPage(EthernetClient client, const String &url, const int type) {
     //print header
     if (type == POST) {
-        client.println(F("HTTP/1.1 303 See Other"));
+        client.println("HTTP/1.1 303 See Other");
         String location = F("Location: http://");
         location.concat((int)EthernetClass::localIP()[0]);
         location.concat('.');
@@ -260,9 +281,9 @@ void printWebPage(EthernetClient client, const String &url, const int type) {
         location.concat(url);
         client.println(location);
     } else {
-        client.println(F("HTTP/1.1 200 OK"));
+        client.println("HTTP/1.1 200 OK");
         if(url.equals("/")){
-            String location = F("Refresh: 450; url=http://");
+            String location = "Refresh: 450; url=http://";
             location.concat((int)EthernetClass::localIP()[0]);
             location.concat('.');
             location.concat((int)EthernetClass::localIP()[1]);
@@ -284,67 +305,162 @@ void printWebPage(EthernetClient client, const String &url, const int type) {
     client.println();
 
     if(url.equals("/")) {
-        for(auto line : pageTop){
-            client.write(line);
-        }
-        char buffer[256] = {0};
-
-        for( int i = 0; i < NUM_PORTS;  i++){
-            client.write(F(R"===(<tr>)==="));
-            sprintf(buffer,F(R"===(<td class="align-middle">%s</td>)==="), items[i]);
-            client.write(buffer);
-            memset(buffer, 0, sizeof(buffer));
-            sprintf(buffer, F(R"===(<td class="align-middle"><div class="alert-sm alert-%s text-center">%s</div></td>)==="), ports[i] ? "success" : "danger", ports[i] ? "On" : "Off");
-            client.write(buffer);
-            sprintf(buffer, F(R"===(<td class="align-middle"><form method="post"><input name="power%d" type="hidden" value="%s"><button type="submit" class="btn btn-block btn-%s">%s</button></form></td>)==="), i, ports[i] ? "0" : "1", ports[i] ? "danger" : "success", ports[i] ? "Off" : "On");
-            client.write(buffer);
-            sprintf(buffer, F(R"===(<td class="align-middle"><form method="post"><input name="power%d" type="hidden" value="2"><button type="submit" class="btn btn-dark btn-block">Cycle</button></form></td>)==="), i);
-            client.write(buffer);
-            client.write(F(R"===(</tr>)==="));
-        }
-
-        for(auto line : pageBottom){
-            client.write(line);
-        }
+        printIndexPage(client);
     } else if(url.equals("/sensors.json")){
-        client.println("{ \"values\":[");
-        for(int i = 0; i < NUM_SENSOR_RECORDS; i++){
-            String line = String(R"({"time":")");
-            tmElements_t elements;
-            breakTime(sensorData[i].readoutTime,elements);
-            line.concat(elements.Year + 1970);
-            line.concat('-');
-            line.concat(zeroPad(elements.Month));
-            line.concat('-');
-            line.concat(zeroPad(elements.Day));
-            line.concat(' ');
-            line.concat(zeroPad(elements.Hour));
-            line.concat(':');
-            line.concat(zeroPad(elements.Minute));
-            line.concat(' ');
-            line.concat(R"(", "pressure":)");
-            line.concat(sensorData[i].pressure);
-            line.concat(R"(, "temp":)");
-            line.concat(sensorData[i].temperature);
-            line.concat(R"(, "humidity":)");
-            line.concat(sensorData[i].humidity);
-            line.concat('}');
-            if(i != NUM_SENSOR_RECORDS - 1) {
-                line.concat(",\n");
-            } else {
-                line.concat('\n');
-            }
-            client.write(line.c_str());
-        }
-        client.println("]}");
+        printSensorsJson(client);
+    } else if(url.equals("/battery.json")){
+        printCellVoltages(client);
+        printBmsFaults(client);
+        printBmsStates(client);
+    } else if(url.equals("/switches.json")){
+        client.println(R"===({ "switches": [)===");
+        char buffer[64] = {0};
+        sprintf(buffer,R"===({"name": "Imaging Computer 1", "state": %s},)===", ports[0] ? "true" : "false");
+        client.println(buffer);
+        sprintf(buffer,R"===({"name": "Imaging Computer 2", "state": %s},)===", ports[1] ? "true" : "false");
+        client.println(buffer);
+        sprintf(buffer,R"===({"name": "Port 3", "state": %s},)===", ports[2] ? "true" : "false");
+        client.println(buffer);
+        sprintf(buffer,R"===({"name": "Port 4", "state": %s})===", ports[3] ? "true" : "false");
+        client.println(buffer);
+        client.println(R"===(]})===");
     }
 }
 
-String zeroPad(int value){
-    String result;
-    if(value < 10) result.concat("0");
-    result.concat(value);
-    return result;
+void printIndexPage(EthernetClient &client) {
+    for(auto line : pageTop){
+        client.println(line);
+    }
+    char buffer[265] = {0};
+    for(int i =0; i< NUM_PORTS; i++){
+        client.println(R"===(<tr>)===");
+        sprintf(buffer, R"===(<td class="align-middle" id="n%d"></td>)===", i);
+        client.println(buffer);
+        sprintf(buffer, R"===(<td class="align-middle"><div id="s%d"></div></td>)===", i);
+        client.println(buffer);
+        sprintf(buffer, R"===(<td class="align-middle"><form method="post"><input name="power%d" type="hidden" value="1" id="i%d"><button type="submit" id="b%d"></button></form></td>)===", i, i ,i);
+        client.println(buffer);
+        sprintf(buffer, R"===(<td class="align-middle"><form method="post"><input name="power%d" type="hidden" value="2"><button type="submit" class="btn btn-dark btn-block">Cycle</button></form></td>)===", i);
+        client.println(buffer);
+        sprintf(buffer, R"===(</tr>)===", i);
+        client.println(buffer);
+    }
+    for(auto line : pageBottom){
+        client.println(line);
+    }
+}
+
+void printSensorsJson(EthernetClient &client) {
+    client.println(R"===({ "values":[)===");
+    for(int i = 0; i < numSensorRecords; i++){
+        char buffer[128] = {0};
+        tmElements_t elements;
+        breakTime(sensorData[i].readoutTime,elements);
+        sprintf(buffer, R"===({"time":"%02d-%02d %02d:%02d", "pressure":%s, "temp":%s, "humidity":%s})===", elements.Month, elements.Day, elements.Hour, elements.Minute,
+                String(sensorData[i].pressure).c_str(), String(sensorData[i].temperature).c_str(), String(sensorData[i].humidity).c_str());
+        client.print(buffer);
+        if(i != numSensorRecords - 1) {
+            client.println(",");
+        } else {
+            client.println();
+        }
+    }
+    client.println("]}");
+}
+
+void printBmsStates(EthernetClient &client) {
+    String line = R"===("charge": ")===";
+    line.concat(bms.current < 0 ? 0 : bms.current);
+    line.concat(R"===(A",)===");
+    client.println(line.c_str());
+    line = R"===("discharge": ")===";
+    line.concat(bms.current < 0 ? bms.current * -1 : 0);
+    line.concat(R"===(A",)===");
+    client.println(line.c_str());
+    line = R"===("totalVoltage": ")===";
+    line.concat(bms.totalVoltage);
+    line.concat(R"===(V",)===");
+    client.println(line.c_str());
+    line = R"===("remainingSOC": )===";
+    line.concat(bms.stateOfCharge);
+    line.concat(R"===(,)===");
+    client.println(line.c_str());
+    line = R"===("minVoltage": ")===";
+    line.concat(bms.minVoltage24);
+    line.concat(R"===(V",)===");
+    client.println(line.c_str());
+    line = R"===("maxVoltage": ")===";
+    line.concat(bms.maxVoltage24);
+    line.concat(R"===(V",)===");
+    client.println(line.c_str());
+    line = R"===("maxCharge": ")===";
+    line.concat(bms.maxCharge24);
+    line.concat(R"===(A",)===");
+    client.println(line.c_str());
+    line = R"===("maxDischarge": ")===";
+    line.concat(bms.maxDischarge24);
+    line.concat(R"===(A",)===");
+    client.println(line.c_str());
+    line = R"===("maxPower": ")===";
+    line.concat(bms.balanceCapacity);
+    line.concat(R"===(W",)===");
+    client.println(line.c_str());
+    line = R"===("temp1": ")===";
+    line.concat(bms.temperatures[0]);
+    line.concat(R"===(C",)===");
+    client.println(line.c_str());
+    line = R"===("temp2": ")===";
+    line.concat(bms.temperatures[1]);
+    line.concat(R"===(C")===");
+    client.println(line.c_str());
+    client.println("}");
+}
+
+void printCellVoltages(EthernetClient &client) {
+    client.println(R"===({ "cellVoltages":[)===");
+    for(int i = 0; i < NUM_CELLS; i++){
+        char buffer[64] = {0};
+        sprintf(buffer, R"===({"cell":"%d", "cellVoltage":%s, "balancing": %s})===", i, String(bms.cellVoltages[i]).c_str(), bms.isBalancing(i) ? "true" : "false");
+        client.print(buffer);
+        if(i != NUM_CELLS - 1) {
+            client.println(",");
+        } else {
+            client.println();
+        }
+    }
+    client.println(R"===(],)===");
+}
+
+void printBmsFaults(EthernetClient &client) {
+    client.println(R"===("faults": [)===");
+    char buffer[64] = {0};
+    sprintf(buffer,R"===({"fault": "Single Cell Over-Voltage", "count": %d},)===", bms.faultCounts.singleCellOvervoltageProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Single Cell Under-Voltage", "count": %d},)===", bms.faultCounts.singleCellUndervoltageProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Whole Pack Over-Voltage", "count": %d},)===", bms.faultCounts.wholePackOvervoltageProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Whole Pack Under-Voltage", "count": %d},)===", bms.faultCounts.wholePackUndervoltageProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Charging Over Temperature", "count": %d},)===", bms.faultCounts.chargingOverTemperatureProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Charging Low Temperature", "count": %d},)===", bms.faultCounts.chargingLowTemperatureProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Discharge Over Temperature", "count": %d},)===", bms.faultCounts.dischargeOverTemperatureProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Discharge Low Temperature", "count": %d},)===", bms.faultCounts.dischargeLowTemperatureProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Charging Over-Current", "count": %d},)===", bms.faultCounts.chargingOvercurrentProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Discharge Over-Current", "count": %d},)===", bms.faultCounts.dischargeOvercurrentProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Short Circuit", "count": %d},)===", bms.faultCounts.shortCircuitProtection);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Front End Detection Ic Error", "count": %d},)===", bms.faultCounts.frontEndDetectionIcError);
+    client.println(buffer);
+    sprintf(buffer,R"===({"fault": "Software Lock Mos", "count": %d})===", bms.faultCounts.softwareLockMos);
+    client.println(buffer);
+    client.println(R"===(],)===");
 }
 
 // send an NTP request to the time server at the given address
