@@ -24,13 +24,7 @@
 
 #define NUM_PORTS 4
 
-#define DEBUG true
-
-#if DEBUG
- #define DEBUG_SERIAL_PRINTLN(x) if(Serial) Serial.println(x)
-#else
- #define DEBUG_SERIAL_PRINTLN(x)
-#endif
+#define DEBUG false
 
 typedef struct Request{
     int type;
@@ -98,15 +92,7 @@ time_t lastSensorLogTime;
 bool ports[4] {false,false,false,false};
 #define BASE_PORT_PIN 3
 
-//#define BME_SCK 13
-//#define BME_MISO 12
-//#define BME_MOSI 11
-//#define BME_CS 4
-
-//BME280 sensor
-//Adafruit_BME280 bme; // I2C
-//Adafruit_BME280 bme(BME_CS); // hardware SPI
-//Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO,  BME_SCK);
+//BME280
 tiny::BME280 bme;
 
 //Serial BMS connection
@@ -121,16 +107,18 @@ void setup() {
     // start the Ethernet connection and the server:
     EthernetClass::begin(mac);
     server.begin();
-    DEBUG_SERIAL_PRINTLN(EthernetClass::localIP());
-
+#if DEBUG
+    Serial.println(EthernetClass::localIP());
+#endif
     //UDP for NTP
     Udp.begin(localPort);
     delay(2000);
     setSyncProvider(getNtpTime);
     setSyncInterval(SECS_PER_HOUR);
-    if(timeStatus() != timeSet) DEBUG_SERIAL_PRINTLN("Unable to sync with NTP");
-    DEBUG_SERIAL_PRINTLN(now());
-
+#if DEBUG
+    if(timeStatus() != timeSet) Serial.println("Unable to sync with NTP");
+    Serial.println(now());
+#endif
     //relay module setup
     pinMode(BASE_PORT_PIN, OUTPUT);
     pinMode(BASE_PORT_PIN  + 1, OUTPUT);
@@ -145,8 +133,9 @@ void setup() {
 
     //bme280
     Wire.begin();
-    if(!bme.begin()) DEBUG_SERIAL_PRINTLN("BME 280 failed!");
+    bme.begin();
 
+    //BMS
     bms.begin(&Serial1);
 }
 
@@ -180,18 +169,17 @@ void measureAndLogSensors(time_t &now) {
     for(int i = 0; i < numSensorRecords - 1; i++){
         sensorData[i] = sensorData[i + 1];
     }
-    sensorData[numSensorRecords - 1] = {now, bme.readFixedPressure() / 100.0, bme.readFixedTempC() / 100.0, bme.readFixedHumidity() / 1000.0};
+    sensorData[numSensorRecords - 1] = {now, bme.readFixedPressure() / 100.0, bme.readFixedTempC() / 100.0, bme.readFixedHumidity() / 1000.0}; // NOLINT(cppcoreguidelines-narrowing-conversions)
 
 #if DEBUG
     char buffer[32] = {0};
     sprintf(buffer, "%d, %s, %s, %s", sensorData[numSensorRecords - 1].readoutTime, String(sensorData[numSensorRecords - 1].pressure).c_str(),
             String(sensorData[numSensorRecords - 1].temperature).c_str(), String(sensorData[numSensorRecords - 1].humidity).c_str());
-    DEBUG_SERIAL_PRINTLN(buffer);
+    Serial.println(buffer);
 #endif
 }
 
 void handleHttpRequest(EthernetClient &client) {
-    DEBUG_SERIAL_PRINTLN(client.available());
     if (client.available()) {
         Request request = parseRequest(client);
         switch (request.type) {
@@ -232,7 +220,9 @@ Request parseRequest(EthernetClient client) {
     Request result{};
 
     String s = client.readStringUntil('\n');
-    DEBUG_SERIAL_PRINTLN(s);
+#if DEBUG
+    Serial.println(s);
+#endif
     if(s.startsWith("GET")){
         result.type = GET;
         result.url = s.substring(4, s.lastIndexOf(' '));
@@ -250,14 +240,18 @@ Request parseRequest(EthernetClient client) {
     } else {
         result.type = UNSUPPORTED;
     }
-    DEBUG_SERIAL_PRINTLN(result.url);
+#if DEBUG
+    Serial.println(result.url);
+#endif
     return result;
 }
 
 void readAndLogRequestLines(EthernetClient client) {
     while (client.available()) {
         String s = client.readStringUntil('\n');
-        DEBUG_SERIAL_PRINTLN(s);
+#if DEBUG
+        Serial.println(s);
+#endif
         if(s.equals(String('\r'))){
             break;
         }

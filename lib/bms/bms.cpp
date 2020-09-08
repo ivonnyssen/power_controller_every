@@ -96,7 +96,7 @@ bool BMS::hasComError() const {
 }
 
 bool BMS::isBalancing(uint8_t cellNumber) const {
-    if (cellNumber <= 31) {
+    if (cellNumber <= numCells) {
         return (balanceStatus >> cellNumber) & 1u;
     }
     else {
