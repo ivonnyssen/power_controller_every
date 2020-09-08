@@ -24,7 +24,7 @@
 
 #define NUM_PORTS 4
 
-#define DEBUG false
+#define DEBUG true
 
 #if DEBUG
  #define DEBUG_SERIAL_PRINTLN(x) if(Serial) Serial.println(x)
@@ -181,15 +181,13 @@ void measureAndLogSensors(time_t &now) {
         sensorData[i] = sensorData[i + 1];
     }
     sensorData[numSensorRecords - 1] = {now, bme.readFixedPressure() / 100.0, bme.readFixedTempC() / 100.0, bme.readFixedHumidity() / 1000.0};
-    String logLine = String((unsigned long) sensorData[numSensorRecords - 1].readoutTime);
-    logLine.concat(',');
-    logLine.concat(sensorData[numSensorRecords - 1].pressure);
-    logLine.concat(',');
-    logLine.concat(sensorData[numSensorRecords - 1].temperature);
-    logLine.concat(',');
-    logLine.concat(sensorData[numSensorRecords - 1].humidity);
-    logLine.concat('\n');
-    DEBUG_SERIAL_PRINTLN(logLine.c_str());
+
+#if DEBUG
+    char buffer[32] = {0};
+    sprintf(buffer, "%d, %s, %s, %s", sensorData[numSensorRecords - 1].readoutTime, String(sensorData[numSensorRecords - 1].pressure).c_str(),
+            String(sensorData[numSensorRecords - 1].temperature).c_str(), String(sensorData[numSensorRecords - 1].humidity).c_str());
+    DEBUG_SERIAL_PRINTLN(buffer);
+#endif
 }
 
 void handleHttpRequest(EthernetClient &client) {
@@ -270,29 +268,18 @@ void printWebPage(EthernetClient client, const String &url, const int type) {
     //print header
     if (type == POST) {
         client.println("HTTP/1.1 303 See Other");
-        String location = F("Location: http://");
-        location.concat((int)EthernetClass::localIP()[0]);
-        location.concat('.');
-        location.concat((int)EthernetClass::localIP()[1]);
-        location.concat('.');
-        location.concat((int)EthernetClass::localIP()[2]);
-        location.concat('.');
-        location.concat((int)EthernetClass::localIP()[3]);
-        location.concat(url);
-        client.println(location);
+        char buffer[64] = {0};
+        sprintf(buffer, "Location: http://%d.%d.%d.%d%s",EthernetClass::localIP()[0],EthernetClass::localIP()[1],
+                EthernetClass::localIP()[2],EthernetClass::localIP()[3],url.c_str());
+        Serial.println(buffer);
+        client.println(buffer);
     } else {
         client.println("HTTP/1.1 200 OK");
         if(url.equals("/")){
-            String location = "Refresh: 450; url=http://";
-            location.concat((int)EthernetClass::localIP()[0]);
-            location.concat('.');
-            location.concat((int)EthernetClass::localIP()[1]);
-            location.concat('.');
-            location.concat((int)EthernetClass::localIP()[2]);
-            location.concat('.');
-            location.concat((int)EthernetClass::localIP()[3]);
-            location.concat(url);
-            client.println(location);
+            char buffer[64] = {0};
+            sprintf(buffer, F("Refresh: 450; url=http://%d.%d.%d.%d%s"),EthernetClass::localIP()[0],
+                    EthernetClass::localIP()[1],EthernetClass::localIP()[2],EthernetClass::localIP()[3],url.c_str());
+            client.println(buffer);
         }
     }
 
@@ -369,50 +356,29 @@ void printSensorsJson(EthernetClient &client) {
 }
 
 void printBmsStates(EthernetClient &client) {
-    String line = R"===("charge": ")===";
-    line.concat(bms.current < 0 ? 0 : bms.current);
-    line.concat(R"===(A",)===");
-    client.println(line.c_str());
-    line = R"===("discharge": ")===";
-    line.concat(bms.current < 0 ? bms.current * -1 : 0);
-    line.concat(R"===(A",)===");
-    client.println(line.c_str());
-    line = R"===("totalVoltage": ")===";
-    line.concat(bms.totalVoltage);
-    line.concat(R"===(V",)===");
-    client.println(line.c_str());
-    line = R"===("remainingSOC": )===";
-    line.concat(bms.stateOfCharge);
-    line.concat(R"===(,)===");
-    client.println(line.c_str());
-    line = R"===("minVoltage": ")===";
-    line.concat(bms.minVoltage24);
-    line.concat(R"===(V",)===");
-    client.println(line.c_str());
-    line = R"===("maxVoltage": ")===";
-    line.concat(bms.maxVoltage24);
-    line.concat(R"===(V",)===");
-    client.println(line.c_str());
-    line = R"===("maxCharge": ")===";
-    line.concat(bms.maxCharge24);
-    line.concat(R"===(A",)===");
-    client.println(line.c_str());
-    line = R"===("maxDischarge": ")===";
-    line.concat(bms.maxDischarge24);
-    line.concat(R"===(A",)===");
-    client.println(line.c_str());
-    line = R"===("maxPower": ")===";
-    line.concat(bms.balanceCapacity);
-    line.concat(R"===(W",)===");
-    client.println(line.c_str());
-    line = R"===("temp1": ")===";
-    line.concat(bms.temperatures[0]);
-    line.concat(R"===(C",)===");
-    client.println(line.c_str());
-    line = R"===("temp2": ")===";
-    line.concat(bms.temperatures[1]);
-    line.concat(R"===(C")===");
-    client.println(line.c_str());
+    char buffer[64] = {0};
+    sprintf(buffer, R"===("charge": "%sA",)===", String(bms.current < 0 ? 0 : bms.current).c_str());
+    client.println(buffer);
+    sprintf(buffer, R"===("discharge": "%sA",)===", String(bms.current < 0 ? -bms.current : 0).c_str());
+    client.println(buffer);
+    sprintf(buffer, R"===("totalVoltage": "%sV",)===", String(bms.totalVoltage).c_str());
+    client.println(buffer);
+    sprintf(buffer, R"===("remainingSOC": %d,)===", bms.stateOfCharge);
+    client.println(buffer);
+    sprintf(buffer, R"===("minVoltage": "%sV",)===", String(bms.minVoltage24).c_str());
+    client.println(buffer);
+    sprintf(buffer, R"===("maxVoltage": "%sV",)===", String(bms.maxVoltage24).c_str());
+    client.println(buffer);
+    sprintf(buffer, R"===("maxCharge": "%sA",)===", String(bms.maxCharge24).c_str());
+    client.println(buffer);
+    sprintf(buffer, R"===("maxDischarge": "%sA",)===", String(bms.maxDischarge24).c_str());
+    client.println(buffer);
+    sprintf(buffer, R"===("maxPower": "%sW",)===", String(bms.balanceCapacity).c_str());
+    client.println(buffer);
+    sprintf(buffer, R"===("temp1": "%sC",)===", String(bms.temperatures[0]).c_str());
+    client.println(buffer);
+    sprintf(buffer, R"===("temp2": "%sC")===", String(bms.temperatures[1]).c_str());
+    client.println(buffer);
     client.println("}");
 }
 
